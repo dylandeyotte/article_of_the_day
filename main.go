@@ -1,10 +1,19 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
+	"os"
 	"strings"
+
+	"github.com/joho/godotenv"
+
+	"github.com/openai/openai-go/v3"
+	"github.com/openai/openai-go/v3/option"
+	"github.com/openai/openai-go/v3/responses"
 )
 
 type Article interface {
@@ -39,7 +48,7 @@ type Page struct {
 	Extract string `json:"extract"`
 }
 
-const randomArticleURL = "https://en.wikipedia.org/w/api.php?action=query&list=random&rnnamespace=0&rnlimit=1&rnminsize=5000&format=json"
+const randomArticleURL = "https://en.wikipedia.org/w/api.php?action=query&list=random&rnnamespace=0&rnlimit=1&rnminsize=5000&rnmaxsize=50000&format=json"
 
 func wikiRequest[T Article](url string, article T) (T, error) {
 	var zero T
@@ -74,9 +83,15 @@ func main() {
 	var RA RandomArticle
 	var FA FullArticle
 
+	godotenv.Load()
+	apiKey := os.Getenv("API_KEY")
+	if apiKey == "" {
+		log.Fatal("No key set")
+	}
+
 	random, err := wikiRequest(randomArticleURL, RA)
 	if err != nil {
-		fmt.Println(err)
+		fmt.Printf("wiki request error: %v\n", err)
 		return
 	}
 
@@ -87,7 +102,7 @@ func main() {
 
 	full, err := wikiRequest(url, FA)
 	if err != nil {
-		fmt.Println(err)
+		fmt.Printf("wiki request error: %v\n", err)
 		return
 	}
 
@@ -97,5 +112,22 @@ func main() {
 		break
 	}
 
-	fmt.Println(page.Extract[:300])
+	client := openai.NewClient(
+		option.WithAPIKey(apiKey),
+	)
+
+	prompt := fmt.Sprintf(
+		"Summarize this Wikipedia article:\n\n%s",
+		page.Extract,
+	)
+
+	resp, err := client.Responses.New(context.TODO(), responses.ResponseNewParams{
+		Model: "gpt-5.6",
+		Input: responses.ResponseNewParamsInputUnion{OfString: openai.String(prompt)},
+	})
+	if err != nil {
+		fmt.Printf("OpenAI error: %v", err)
+	}
+
+	fmt.Println(resp.OutputText())
 }
